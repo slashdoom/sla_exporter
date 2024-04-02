@@ -1,0 +1,16 @@
+global:
+  scrape_interval: 5m
+
+scrape_configs:
+  - job_name: node
+    scrape_timeout: 30s
+    static_configs:
+      - targets: ['sla_exporter:9909']
+        labels:
+          host: 'Node-0'
+
+remote_write:
+  - url: 'https://prometheus-blocks-prod-us-central1.grafana.net/api/prom/push'
+    basic_auth:
+      username: '000000'
+      password: 'glc_abc123=='
