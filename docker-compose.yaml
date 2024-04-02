@@ -1,0 +1,30 @@
+services:
+  sla_exporter-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./:/go/sla_exporter
+    ports:
+      - "9909:9909"
+  
+  prometheus-dev:
+    image: prom/prometheus
+    volumes:
+      - ./prometheus.dev.yaml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9091:9090"
+  
+  sla_exporter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./config.yaml:/go/sla_exporter/config.yaml
+  
+  prometheus:
+    image: prom/prometheus
+    volumes:
+      - ./prometheus.yaml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"

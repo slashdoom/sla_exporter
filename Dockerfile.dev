@@ -1,0 +1,15 @@
+##
+## Development
+##
+
+# pull official base image
+FROM golang:alpine
+
+# set work directory
+WORKDIR /go/sla_exporter
+
+# install application for hot-reloading capability.
+RUN go install github.com/githubnemo/CompileDaemon@latest
+
+# run app in CompileDaemon
+ENTRYPOINT /go/bin/CompileDaemon -directory="./" -build="go build -o ./build/" -command="./build/sla_exporter --level debug"

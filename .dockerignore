@@ -1,0 +1,6 @@
+bin
+.dockerignore
+Dockerfile
+Dockerfile.dev
+docker-compose.yml
+.env
