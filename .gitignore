@@ -15,9 +15,9 @@
 # vendor/
 
 # Local config
-config.yaml
-prometheus.yaml
-prometheus.dev.yaml
+/config.yaml
+/prometheus.yaml
+/prometheus.dev.yaml
 
 # Build directory
 build/**
