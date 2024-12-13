@@ -23,6 +23,7 @@ type WebConfig struct {
 
 type DnsTestConfig struct {
 	Host    string `yaml:"host"`
+	Alias   string `yaml:"alias,omitempty"`
 	Server  string `yaml:"server,omitempty"`
 	Port    int    `yaml:"port,omitempty"`
 	Timeout string `yaml:"timeout,omitempty"`
@@ -31,12 +32,14 @@ type DnsTestConfig struct {
 
 type PingTestConfig struct {
 	Host    string `yaml:"host"`
+	Alias   string `yaml:"alias,omitempty"`
 	Count   int    `yaml:"count,omitempty"`
 	Timeout string `yaml:"timeout,omitempty"`
 }
 
 type CurlTestConfig struct {
 	URL     string      `yaml:"url"`
+	Alias   string      `yaml:"alias,omitempty"`
 	Timeout string      `yaml:"timeout,omitempty"`
 	Method  string      `yaml:"method,omitempty"`
 	Headers http.Header `yaml:"headers,omitempty"`
@@ -44,6 +47,7 @@ type CurlTestConfig struct {
 
 type TcpingTestConfig struct {
 	Host    string `yaml:"host"`
+	Alias   string `yaml:"alias,omitempty"`
 	Port    int    `yaml:"port"`
 	Timeout string `yaml:"timeout,omitempty"`
 }

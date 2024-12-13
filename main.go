@@ -23,11 +23,12 @@ import (
 type testResult struct {
 	test     string
 	target   string
+	alias    string
 	success  bool
 	duration time.Duration
 }
 
-const version string = "0.0.1"
+const version string = "0.0.3"
 
 var (
 	showVersion        = flag.Bool("version", false, "Print version information.")
@@ -43,16 +44,23 @@ var (
 	testResults = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "sla_result",
-			Help: "Total number of test results by type, and target.",
+			Help: "Overall result of tests.",
 		},
-		[]string{"test", "target"},
+		[]string{"test", "description"},
 	)
-	testDurations = prometheus.NewGaugeVec(
+	testRunDurations = prometheus.NewGaugeVec(
         prometheus.GaugeOpts{
-            Name: "sla_duration",
-            Help: "Duration of tests by test and target.",
+            Name: "sla_run_duration",
+            Help: "Run Duration of tests.",
         },
-        []string{"test", "target"},
+        []string{"test", "description"},
+    )
+	testCumulativeDurations = prometheus.NewGaugeVec(
+        prometheus.GaugeOpts{
+            Name: "sla_cumulative_duration",
+            Help: "Cumulative Duration of tests.",
+        },
+        []string{"test", "description"},
     )
 )
 
@@ -82,7 +90,8 @@ func main() {
 
 	// Register metrics with the global Prometheus registry
     registry.MustRegister(testResults)
-    registry.MustRegister(testDurations)
+    registry.MustRegister(testRunDurations)
+    registry.MustRegister(testCumulativeDurations)
 	dns.Register(registry)
 	curl.Register(registry)
 	ping.Register(registry)
@@ -148,149 +157,65 @@ func startServer() {
 
 func handleMetricsRequest(w http.ResponseWriter, r *http.Request) {
 	reg := registry
-
 	startTimeTotal := time.Now()
+
+	// Channels for passing results
+	resultChan := make(chan testResult,
+		(len(config.AppConfig.CurlTests)+
+			len(config.AppConfig.DnsTests)+
+			len(config.AppConfig.PingTests)+
+			len(config.AppConfig.TcpingTests)),
+	)
+
+
+    // Variables to track overall success and duration for each test category
+    var curlSuccess, dnsSuccess, pingSuccess, tcpingSuccess bool
+    var curlRunDuration, dnsRunDuration, pingRunDuration, tcpingRunDuration time.Duration
+	var curlCumulativeDuration, dnsCumulativeDuration, pingCumulativeDuration, tcpingCumulativeDuration time.Duration
 
 	// Create a WaitGroup to wait for all goroutines to finish
 	var wg sync.WaitGroup
 
-	// Channels for passing results back
-	resultChan := make(chan testResult, 100)
+	wg.Add(4) // One for each test type
 
-	// Variables to track overall success and duration for each test category
-	var dnsSuccess bool
-	var dnsDuration time.Duration
-	var pingSuccess bool
-	var pingDuration time.Duration
-	var curlSuccess bool
-	var curlDuration time.Duration
-	var tcpingSuccess bool
-	var tcpingDuration time.Duration
+    go func() {
+        defer wg.Done()
+        curlSuccess, curlRunDuration, curlCumulativeDuration = runCurlTests(resultChan)
+    }()
+    go func() {
+        defer wg.Done()
+        dnsSuccess, dnsRunDuration, dnsCumulativeDuration = runDnsTests(resultChan)
+    }()
+    go func() {
+        defer wg.Done()
+        pingSuccess, pingRunDuration, pingCumulativeDuration = runPingTests(resultChan)
+    }()
+    go func() {
+        defer wg.Done()
+        tcpingSuccess, tcpingRunDuration, tcpingCumulativeDuration = runTcpingTests(resultChan)
+    }()
 
-	// Run cURL tests asynchronously
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		startTimeCurl := time.Now()
-		var curlAllSuccess bool
-		for _, curlTest := range config.AppConfig.CurlTests {
-			result, _ := curl.Test(curlTest)
-			curl.Record(fmt.Sprintf("%s", curlTest.URL), "GET", result)
-
-			// Collect the result
-			resultChan <- testResult{
-				test:     "curl",
-				target:   fmt.Sprintf("%s", curlTest.URL),
-				success:  result.Completed,
-				duration: result.Duration,
-			}
-
-			if !result.Completed {
-				curlAllSuccess = false
-			}
-		}
-		curlDuration = time.Since(startTimeCurl)
-		curlSuccess = curlAllSuccess
-	}()
-
-	// Run DNS tests asynchronously
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		startTimeDns := time.Now()
-		var dnsAllSuccess bool
-		for _, dnsTest := range config.AppConfig.DnsTests {
-			result, _ := dns.Test(dnsTest)
-			serverName := ""
-			if dnsTest.Server != "" {
-				serverName = fmt.Sprintf("%s", dnsTest.Server)
-			}
-			dns.Record(fmt.Sprintf("%s", dnsTest.Host), serverName, result)
-
-			// Collect the result
-			resultChan <- testResult{
-				test:     "dns",
-				target:   fmt.Sprintf("%s", dnsTest.Host),
-				success:  result.Completed,
-				duration: result.Duration,
-			}
-
-			if !result.Completed {
-				dnsAllSuccess = false
-			}
-		}
-		dnsDuration = time.Since(startTimeDns)
-		dnsSuccess = dnsAllSuccess
-	}()
-
-	// Run Ping tests asynchronously
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		startTimePing := time.Now()
-		var pingAllSuccess bool
-		for _, pingTest := range config.AppConfig.PingTests {
-			result, _ := ping.Test(pingTest)
-			ping.Record(fmt.Sprintf("%s", pingTest.Host), result)
-
-			// Collect the result
-			resultChan <- testResult{
-				test:     "ping",
-				target:   fmt.Sprintf("%s", pingTest.Host),
-				success:  result.Completed,
-				duration: result.Duration,
-			}
-
-			if !result.Completed {
-				pingAllSuccess = false
-			}
-		}
-		pingDuration = time.Since(startTimePing)
-		pingSuccess = pingAllSuccess
-	}()
-
-	// Run TCPing tests asynchronously
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		startTimeTcping := time.Now()
-		var tcpingAllSuccess bool
-		for _, tcpingTest := range config.AppConfig.TcpingTests {
-			result, _ := tcping.Test(tcpingTest)
-			tcping.Record(fmt.Sprintf("%s", tcpingTest.Host), fmt.Sprintf("%d", tcpingTest.Port), result)
-
-			// Collect the result
-			resultChan <- testResult{
-				test:     "tcping",
-				target:   fmt.Sprintf("%s:%d", tcpingTest.Host, tcpingTest.Port),
-				success:  result.Completed,
-				duration: result.Duration,
-			}
-
-			if !result.Completed {
-				tcpingAllSuccess = false
-			}
-		}
-		tcpingDuration = time.Since(startTimeTcping)
-		tcpingSuccess = tcpingAllSuccess
-	}()
-
-	// Wait for all goroutines to finish
+	// Wait for all test types to complete
 	wg.Wait()
-
-	// Close the result channel now that all results have been sent
 	close(resultChan)
 
 	// Record the overall results for each test type
-	recordTestResult("curl", "all_curl_tests", curlSuccess, curlDuration)
-	recordTestResult("dns", "all_dns_tests", dnsSuccess, dnsDuration)
-	recordTestResult("ping", "all_ping_tests", pingSuccess, pingDuration)
-	recordTestResult("tcping", "all_tcping_tests", tcpingSuccess, tcpingDuration)
+	recordTestResult("curl", "all_curl_tests", curlSuccess, curlRunDuration, curlCumulativeDuration)
+	recordTestResult("dns", "all_dns_tests", dnsSuccess, dnsRunDuration, dnsCumulativeDuration)
+	recordTestResult("ping", "all_ping_tests", pingSuccess, pingRunDuration, pingCumulativeDuration)
+	recordTestResult("tcping", "all_tcping_tests", tcpingSuccess, tcpingRunDuration, tcpingCumulativeDuration)
 
 	// Record the total result
-	recordTestResult("all_tests", "total_run_time", true, time.Since(startTimeTotal))
-    recordTestResult("all_tests", "total_test_duration", true, (curlDuration+dnsDuration+pingDuration+tcpingDuration))
-
+	recordTestResult(
+		"all",
+		"all_test",
+		true,
+		time.Since(startTimeTotal),
+		(curlCumulativeDuration+
+			dnsCumulativeDuration+
+			pingCumulativeDuration+
+			tcpingCumulativeDuration),
+	)
 
 	// Expose metrics via Prometheus
 	promhttp.HandlerFor(reg, promhttp.HandlerOpts{
@@ -299,11 +224,224 @@ func handleMetricsRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 
-func recordTestResult(test string, target string, result bool, duration time.Duration) {
+func recordTestResult(test string, description string, result bool, runDuration time.Duration, cumulativeDuration time.Duration) {
 	succeeded := 0.00
 	if result {
 		succeeded = 1.00
 	}
-	testResults.WithLabelValues(test, target).Set(succeeded)
-	testDurations.WithLabelValues(test, target).Set(duration.Seconds())
+	testResults.WithLabelValues(test, description).Set(succeeded)
+	testRunDurations.WithLabelValues(test, description).Set(runDuration.Seconds())
+	testCumulativeDurations.WithLabelValues(test, description).Set(cumulativeDuration.Seconds())
+}
+
+
+func runCurlTests(resultChan chan<- testResult) (bool, time.Duration, time.Duration) {
+    var wg sync.WaitGroup
+    startTime := time.Now()
+
+    allSuccess := true
+    var cumulativeDuration time.Duration
+    var mu sync.Mutex // To safely update cumulativeDuration across goroutines
+
+    for _, curlTest := range config.AppConfig.CurlTests {
+        wg.Add(1)
+        go func(test config.CurlTestConfig) {
+            defer wg.Done()
+            result, err := curl.Test(test)
+            if err != nil {
+                logger.Log.Error("Curl test failed",
+                    zap.String("url", test.URL),
+                    zap.Error(err),
+                )
+                allSuccess = false
+            } else if !result.Completed {
+                allSuccess = false
+            }
+
+			// Record the test result
+            curl.Record(
+                fmt.Sprintf("%s", test.URL),
+                fmt.Sprintf("%s", test.Alias),
+                "GET",
+                result,
+            )
+
+			// Safely update the cumulative duration
+			mu.Lock()
+			cumulativeDuration += result.Duration
+			mu.Unlock()
+
+            // Record the result
+            resultChan <- testResult{
+                test:     "curl",
+                target:   fmt.Sprintf("%s", test.URL),
+                alias:    fmt.Sprintf("%s", test.Alias),
+                success:  result.Completed,
+                duration: result.Duration,
+            }
+        }(curlTest)
+    }
+
+    wg.Wait()
+    return allSuccess, time.Since(startTime), cumulativeDuration
+}
+
+
+func runDnsTests(resultChan chan<- testResult) (bool, time.Duration, time.Duration) {
+    var wg sync.WaitGroup
+    startTime := time.Now()
+
+    allSuccess := true
+    var cumulativeDuration time.Duration
+    var mu sync.Mutex // To safely update cumulativeDuration across goroutines
+
+    for _, dnsTest := range config.AppConfig.DnsTests {
+        wg.Add(1)
+        go func(test config.DnsTestConfig) {
+            defer wg.Done()
+            result, err := dns.Test(test)
+			serverName := ""
+			if dnsTest.Server != "" {
+				serverName = fmt.Sprintf("%s", dnsTest.Server)
+			}
+            if err != nil {
+                logger.Log.Error("DNS test failed",
+                    zap.String("host", test.Host),
+                    zap.Error(err),
+                )
+                allSuccess = false
+            } else if !result.Completed {
+                allSuccess = false
+            }
+
+			// Record the test result
+            dns.Record(
+                fmt.Sprintf("%s", test.Host),
+                fmt.Sprintf("%s", test.Alias),
+                serverName,
+				result,
+			)
+
+			// Safely update the cumulative duration
+			mu.Lock()
+			cumulativeDuration += result.Duration
+			mu.Unlock()
+
+            // Record the result
+            resultChan <- testResult{
+                test:     "dns",
+                target:   fmt.Sprintf("%s", test.Host),
+                alias:    fmt.Sprintf("%s", test.Alias),
+                success:  result.Completed,
+                duration: result.Duration,
+            }
+        }(dnsTest)
+    }
+
+    wg.Wait()
+    return allSuccess, time.Since(startTime), cumulativeDuration
+}
+
+
+func runPingTests(resultChan chan<- testResult) (bool, time.Duration, time.Duration) {
+    var wg sync.WaitGroup
+    startTime := time.Now()
+
+    allSuccess := true
+    var cumulativeDuration time.Duration
+    var mu sync.Mutex // To safely update cumulativeDuration across goroutines
+
+    for _, pingTest := range config.AppConfig.PingTests {
+        wg.Add(1)
+        go func(test config.PingTestConfig) {
+            defer wg.Done()
+            result, err := ping.Test(test)
+            if err != nil {
+                logger.Log.Error("Ping test failed",
+                    zap.String("host", test.Host),
+                    zap.Error(err),
+                )
+                allSuccess = false
+            } else if !result.Completed {
+                allSuccess = false
+            }
+
+			// Record the test result
+            ping.Record(
+                fmt.Sprintf("%s", test.Host),
+                fmt.Sprintf("%s", test.Alias),
+				result,
+			)
+
+			// Safely update the cumulative duration
+			mu.Lock()
+			cumulativeDuration += result.Duration
+			mu.Unlock()
+
+            // Record the result
+            resultChan <- testResult{
+                test:     "ping",
+                target:   fmt.Sprintf("%s", test.Host),
+                alias:    fmt.Sprintf("%s", test.Alias),
+                success:  result.Completed,
+                duration: result.Duration,
+            }
+        }(pingTest)
+    }
+
+    wg.Wait()
+    return allSuccess, time.Since(startTime), cumulativeDuration
+}
+
+
+func runTcpingTests(resultChan chan<- testResult) (bool, time.Duration, time.Duration) {
+    var wg sync.WaitGroup
+    startTime := time.Now()
+
+    allSuccess := true
+    var cumulativeDuration time.Duration
+    var mu sync.Mutex // To safely update cumulativeDuration across goroutines
+
+    for _, tcpingTest := range config.AppConfig.TcpingTests {
+        wg.Add(1)
+        go func(test config.TcpingTestConfig) {
+            defer wg.Done()
+            result, err := tcping.Test(test)
+            if err != nil {
+                logger.Log.Error("TCPing test failed",
+                    zap.String("host", test.Host),
+					zap.String("port", fmt.Sprintf("%d", tcpingTest.Port)),
+                    zap.Error(err),
+                )
+                allSuccess = false
+            } else if !result.Completed {
+                allSuccess = false
+            }
+
+			// Record the test result
+            tcping.Record(
+                fmt.Sprintf("%s", test.Host),
+                fmt.Sprintf("%s", test.Alias),
+				fmt.Sprintf("%d", tcpingTest.Port),
+				result,
+			)
+
+			// Safely update the cumulative duration
+			mu.Lock()
+			cumulativeDuration += result.Duration
+			mu.Unlock()
+
+            // Record the result
+            resultChan <- testResult{
+                test:     "tcping",
+                target:   fmt.Sprintf("%s:%d", tcpingTest.Host, tcpingTest.Port),
+                alias:    fmt.Sprintf("%s", test.Alias),
+                success:  result.Completed,
+                duration: result.Duration,
+            }
+        }(tcpingTest)
+    }
+
+    wg.Wait()
+    return allSuccess, time.Since(startTime), cumulativeDuration
 }

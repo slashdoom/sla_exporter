@@ -23,7 +23,7 @@ var (
 
 
 func init() {
-	l := []string{"target", "test", "stat"}
+	l := []string{"target", "alias", "test", "stat"}
 
 	d := prometheus.GaugeOpts{Name: prefix+"result", Help: "Result of test", }
 	Result = prometheus.NewGaugeVec(d, l)
@@ -64,31 +64,32 @@ func Register(registry *prometheus.Registry) {
 	registry.MustRegister(StdDevRtt)
 }
 
-func Record(host string, result PingResult) {
-	l := prometheus.Labels{"target": host, "test": "ping", "stat": "result"}
+func Record(host string, alias string, result PingResult) {
+	l := prometheus.Labels{"target": host, "alias": alias, "test": "ping", "stat": "result"}
 	completed := 0.00
 	if result.Completed {
 		completed = 1.00
 	}
 	Result.With(l).Set(completed)
-	l = prometheus.Labels{"target": host, "test": "ping", "stat": "duration"}
+
+	l = prometheus.Labels{"target": host, "alias": alias, "test": "ping", "stat": "duration"}
 	Duration.With(l).Set(result.Duration.Seconds())
 	
-	l = prometheus.Labels{"target": host, "test": "ping", "stat": "packets_recv"}
+	l = prometheus.Labels{"target": host, "alias": alias, "test": "ping", "stat": "packets_recv"}
 	PacketsRecv.With(l).Set(float64(result.PacketsRecv))
-	l = prometheus.Labels{"target": host, "test": "ping", "stat": "packets_sent"}
+	l = prometheus.Labels{"target": host, "alias": alias, "test": "ping", "stat": "packets_sent"}
 	PacketsSent.With(l).Set(float64(result.PacketsSent))
-	l = prometheus.Labels{"target": host, "test": "ping", "stat": "Packets_recv_dup"}
+	l = prometheus.Labels{"target": host, "alias": alias, "test": "ping", "stat": "Packets_recv_dup"}
 	PacketsRecvDup.With(l).Set(float64(result.PacketsRecvDup))
-	l = prometheus.Labels{"target": host, "test": "ping", "stat": "packet_loss"}
+	l = prometheus.Labels{"target": host, "alias": alias, "test": "ping", "stat": "packet_loss"}
 	PacketLoss.With(l).Set(float64(result.PacketLoss))
 	
-	l = prometheus.Labels{"target": host, "test": "ping", "stat": "min_rtt"}
+	l = prometheus.Labels{"target": host, "alias": alias, "test": "ping", "stat": "min_rtt"}
 	MinRtt.With(l).Set(result.MinRtt.Seconds())
-	l = prometheus.Labels{"target": host, "test": "ping", "stat": "max_rtt"}
+	l = prometheus.Labels{"target": host, "alias": alias, "test": "ping", "stat": "max_rtt"}
 	MaxRtt.With(l).Set(result.MaxRtt.Seconds())
-	l = prometheus.Labels{"target": host, "test": "ping", "stat": "avg_rtt"}
+	l = prometheus.Labels{"target": host, "alias": alias, "test": "ping", "stat": "avg_rtt"}
 	AvgRtt.With(l).Set(result.AvgRtt.Seconds())
-	l = prometheus.Labels{"target": host, "test": "ping", "stat": "std_dev_rtt"}
+	l = prometheus.Labels{"target": host, "alias": alias, "test": "ping", "stat": "std_dev_rtt"}
 	StdDevRtt.With(l).Set(result.StdDevRtt.Seconds())
 }

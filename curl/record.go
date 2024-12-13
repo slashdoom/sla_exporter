@@ -20,7 +20,7 @@ var (
 
 
 func init() {
-	l := []string{"target", "test", "method", "stat"}
+	l := []string{"target", "alias", "test", "method", "stat"}
 
 	d := prometheus.GaugeOpts{Name: prefix+"result", Help: "Result of test", }
 	ResultGauge = prometheus.NewGaugeVec(d, l)
@@ -52,25 +52,25 @@ func Register(registry *prometheus.Registry) {
 	registry.MustRegister(statusCodeGauge)
 }
 
-func Record(url string, method string, result CurlResult) {
-	l := prometheus.Labels{"target": url, "method": method, "test": "curl", "stat": "result"}
+func Record(url string, alias string, method string, result CurlResult) {
+	l := prometheus.Labels{"target": url, "alias": alias, "method": method, "test": "curl", "stat": "result"}
 	completed := 0.00
 	if result.Completed {
 		completed = 1.00
 	}
 	ResultGauge.With(l).Set(completed)
-	l = prometheus.Labels{"target": url, "method": method, "test": "curl", "stat": "duration"}
+	l = prometheus.Labels{"target": url, "alias": alias, "method": method, "test": "curl", "stat": "duration"}
 	DurationGauge.With(l).Set(result.Duration.Seconds())
 	
-	l = prometheus.Labels{"target": url, "method": method, "test": "curl", "stat": "dns_duration"}
+	l = prometheus.Labels{"target": url, "alias": alias, "method": method, "test": "curl", "stat": "dns_duration"}
 	dnsDurationGauge.With(l).Set(float64(result.dnsDuration.Seconds()))
-	l = prometheus.Labels{"target": url, "method": method, "test": "curl", "stat": "conn_duration"}
+	l = prometheus.Labels{"target": url, "alias": alias, "method": method, "test": "curl", "stat": "conn_duration"}
 	connDurationGauge.With(l).Set(float64(result.connDuration.Seconds()))
-	l = prometheus.Labels{"target": url, "method": method, "test": "curl", "stat": "tls_duration"}
+	l = prometheus.Labels{"target": url, "alias": alias, "method": method, "test": "curl", "stat": "tls_duration"}
 	tlsDurationGauge.With(l).Set(float64(result.tlsDuration.Seconds()))
-	l = prometheus.Labels{"target": url, "method": method, "test": "curl", "stat": "req_to_resp_duration"}
+	l = prometheus.Labels{"target": url, "alias": alias, "method": method, "test": "curl", "stat": "req_to_resp_duration"}
 	ReqToRespDurationGauge.With(l).Set(float64(result.ReqToRespDuration.Seconds()))
 
-	l = prometheus.Labels{"target": url, "method": method, "test": "curl", "stat": "status_code"}
+	l = prometheus.Labels{"target": url, "alias": alias, "method": method, "test": "curl", "stat": "status_code"}
 	statusCodeGauge.With(l).Set(float64(result.statusCode))
 }

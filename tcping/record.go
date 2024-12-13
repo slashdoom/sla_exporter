@@ -13,7 +13,7 @@ var (
 
 
 func init() {
-	l := []string{"target", "port", "test", "stat"}
+	l := []string{"target", "alias", "port", "test", "stat"}
 
 	d := prometheus.GaugeOpts{Name: prefix + "result", Help: "Result of test", }
 	Result = prometheus.NewGaugeVec(d, l)
@@ -28,13 +28,13 @@ func Register(registry *prometheus.Registry) {
 }
 
 
-func Record(host string, port string, result TcpingResult) {
-	l := prometheus.Labels{"target": host, "port": port, "test": "tcping", "stat": "result"}
+func Record(host string, alias string, port string, result TcpingResult) {
+	l := prometheus.Labels{"target": host, "alias": alias, "port": port, "test": "tcping", "stat": "result"}
 	completed := 0.00
 	if result.Completed {
 		completed = 1.00
 	}
 	Result.With(l).Set(completed)
-	l = prometheus.Labels{"target": host, "port": port, "test": "tcping", "stat": "duration"}
+	l = prometheus.Labels{"target": host, "alias": alias, "port": port, "test": "tcping", "stat": "duration"}
 	Duration.With(l).Set(result.Duration.Seconds())
 }
