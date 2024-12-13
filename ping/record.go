@@ -79,7 +79,7 @@ func Record(host string, alias string, result PingResult) {
 	PacketsRecv.With(l).Set(float64(result.PacketsRecv))
 	l = prometheus.Labels{"target": host, "alias": alias, "test": "ping", "stat": "packets_sent"}
 	PacketsSent.With(l).Set(float64(result.PacketsSent))
-	l = prometheus.Labels{"target": host, "alias": alias, "test": "ping", "stat": "Packets_recv_dup"}
+	l = prometheus.Labels{"target": host, "alias": alias, "test": "ping", "stat": "packets_recv_dup"}
 	PacketsRecvDup.With(l).Set(float64(result.PacketsRecvDup))
 	l = prometheus.Labels{"target": host, "alias": alias, "test": "ping", "stat": "packet_loss"}
 	PacketLoss.With(l).Set(float64(result.PacketLoss))
