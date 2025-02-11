@@ -3,32 +3,29 @@ package main
 import (
 	"bytes"
 	"io/ioutil"
-	"os"
 
 	"example.org/config"
 	"example.org/logger"
 
 	"go.uber.org/zap"
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
-func loadConfig(c config.Config) (config.Config, error) {
+func MergeConfig(c config.Config) (config.Config, error) {
 	f, err := loadConfigFromFile(c.ConfigFile)
 	if err != nil {
 		logger.Log.Warn("config file error, exiting",
 			zap.String("file", c.ConfigFile),
 			zap.Error(err),
 		)
-		os.Exit(1)
+		return c, err
 	}
-
 
 	logger.Log.Info("loading config flags")
 	c = loadConfigFromFlags(c, f)
 
 	return c, nil
 }
-
 
 func loadConfigFromFile(f string) (config.Config, error) {
 	c := config.New()
@@ -68,7 +65,6 @@ func loadConfigFromFile(f string) (config.Config, error) {
 	return c, nil
 }
 
-
 func loadConfigFromFlags(c config.Config, f config.Config) config.Config {
 	if c.Web.ListenAddress < 1 {
 		f.Web.ListenAddress = c.Web.ListenAddress
@@ -76,8 +72,8 @@ func loadConfigFromFlags(c config.Config, f config.Config) config.Config {
 	if c.Web.MetricsPath != "" {
 		f.Web.MetricsPath = c.Web.MetricsPath
 	}
-	if c.Timeout  != "" {
-		f.Timeout = c.Timeout 
+	if c.Timeout != "" {
+		f.Timeout = c.Timeout
 	}
 	if c.Level != "" {
 		f.Level = c.Level

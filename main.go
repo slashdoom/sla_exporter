@@ -3,9 +3,9 @@ package main
 import (
 	"flag"
 	"fmt"
-	"os"
 	"net/http"
-    "sync"
+	"os"
+	"sync"
 	"time"
 
 	"example.org/config"
@@ -15,6 +15,7 @@ import (
 	"example.org/ping"
 	"example.org/tcping"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
@@ -28,19 +29,19 @@ type testResult struct {
 	duration time.Duration
 }
 
-const version string = "0.0.3"
+const version string = "0.0.4"
 
 var (
-	showVersion        = flag.Bool("version", false, "Print version information.")
-	listenAddress      = flag.String("web.listen-address", "0.0.0.0:9909", "Address on which to expose metrics and web interface.")
-	metricsPath        = flag.String("web.telemetry-path", "/metrics", "Path under which to expose metrics.")
-	level              = flag.String("level", "info", "Set logging verbose level")
-	timeout            = flag.Int("Timeout", 5, "Set default test timeout value")
-	configFile         = flag.String("config.file", "config.yaml", "Path to config file (required)")
+	showVersion   = flag.Bool("version", false, "Print version information.")
+	listenAddress = flag.String("web.listen-address", "0.0.0.0:9909", "Address on which to expose metrics and web interface.")
+	metricsPath   = flag.String("web.telemetry-path", "/metrics", "Path under which to expose metrics.")
+	level         = flag.String("level", "info", "Set logging verbose level")
+	timeout       = flag.Int("Timeout", 5, "Set default test timeout value")
+	configFile    = flag.String("config.file", "config.yaml", "Path to config file (required)")
 )
 
 var (
-	registry = prometheus.NewRegistry()
+	registry    = prometheus.NewRegistry()
 	testResults = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "sla_result",
@@ -49,19 +50,19 @@ var (
 		[]string{"test", "description"},
 	)
 	testRunDurations = prometheus.NewGaugeVec(
-        prometheus.GaugeOpts{
-            Name: "sla_run_duration",
-            Help: "Run Duration of tests.",
-        },
-        []string{"test", "description"},
-    )
+		prometheus.GaugeOpts{
+			Name: "sla_run_duration",
+			Help: "Run Duration of tests.",
+		},
+		[]string{"test", "description"},
+	)
 	testCumulativeDurations = prometheus.NewGaugeVec(
-        prometheus.GaugeOpts{
-            Name: "sla_cumulative_duration",
-            Help: "Cumulative Duration of tests.",
-        },
-        []string{"test", "description"},
-    )
+		prometheus.GaugeOpts{
+			Name: "sla_cumulative_duration",
+			Help: "Cumulative Duration of tests.",
+		},
+		[]string{"test", "description"},
+	)
 )
 
 func init() {
@@ -72,7 +73,6 @@ func init() {
 	}
 }
 
-
 func main() {
 	flag.Parse()
 
@@ -81,7 +81,7 @@ func main() {
 		os.Exit(0)
 	}
 
-	err := initialize()
+	err := loadConfig()
 	if err != nil {
 		logger.Log.Fatal("could not initialize exporter.",
 			zap.Error(err),
@@ -89,24 +89,25 @@ func main() {
 	}
 
 	// Register metrics with the global Prometheus registry
-    registry.MustRegister(testResults)
-    registry.MustRegister(testRunDurations)
-    registry.MustRegister(testCumulativeDurations)
+	registry.MustRegister(testResults)
+	registry.MustRegister(testRunDurations)
+	registry.MustRegister(testCumulativeDurations)
 	dns.Register(registry)
 	curl.Register(registry)
 	ping.Register(registry)
 	tcping.Register(registry)
 
+	go watchConfig() // watch for config changes
+
 	startServer()
 }
 
-
-func initialize() error {
+func loadConfig() error {
 	var err error
 	c := config.New()
 	c.ConfigFile = *configFile
 
-	c, err = loadConfig(c)
+	c, err = MergeConfig(c)
 	if err != nil {
 		return err
 	}
@@ -117,6 +118,56 @@ func initialize() error {
 	return nil
 }
 
+func watchConfig() {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		logger.Log.Fatal("failed to create file watcher",
+			zap.Error(err),
+		)
+	}
+	defer watcher.Close()
+
+	err = watcher.Add(*configFile)
+	if err != nil {
+		logger.Log.Fatal("failed to watch config file",
+			zap.String("file", *configFile),
+			zap.Error(err),
+		)
+	}
+
+	logger.Log.Info("watching config file for changes",
+		zap.String("file", *configFile),
+	)
+
+	for {
+		select {
+		case event, ok := <-watcher.Events:
+			if !ok {
+				return
+			}
+			if event.Op&fsnotify.Write == fsnotify.Write {
+				logger.Log.Info("config file modified, reloading",
+					zap.String("file", *configFile),
+				)
+				err := loadConfig()
+				if err != nil {
+					logger.Log.Error("failed to reload config",
+						zap.Error(err),
+					)
+				} else {
+					logger.Log.Info("config reloaded successfully")
+				}
+			}
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				return
+			}
+			logger.Log.Error("file watcher error",
+				zap.Error(err),
+			)
+		}
+	}
+}
 
 func printVersion() {
 	fmt.Println("sla_exporter")
@@ -124,7 +175,6 @@ func printVersion() {
 	fmt.Println("Author(s): slashdoom (Patrick Ryon)")
 	fmt.Println("Metric exporter for simple network SLA tests")
 }
-
 
 func startServer() {
 	logger.Log.Info("starting sla_exporter",
@@ -151,9 +201,14 @@ func startServer() {
 		zap.String("metricsPath", *metricsPath),
 		zap.String("listenAddress", *listenAddress),
 	)
-	http.ListenAndServe(*listenAddress, nil)
-}
 
+	err := http.ListenAndServe(*listenAddress, nil)
+	if err != nil {
+		logger.Log.Fatal("server failed to start",
+			zap.Error(err),
+		)
+	}
+}
 
 func handleMetricsRequest(w http.ResponseWriter, r *http.Request) {
 	reg := registry
@@ -161,16 +216,15 @@ func handleMetricsRequest(w http.ResponseWriter, r *http.Request) {
 
 	// Channels for passing results
 	resultChan := make(chan testResult,
-		(len(config.AppConfig.CurlTests)+
-			len(config.AppConfig.DnsTests)+
-			len(config.AppConfig.PingTests)+
+		(len(config.AppConfig.CurlTests) +
+			len(config.AppConfig.DnsTests) +
+			len(config.AppConfig.PingTests) +
 			len(config.AppConfig.TcpingTests)),
 	)
 
-
-    // Variables to track overall success and duration for each test category
-    var curlSuccess, dnsSuccess, pingSuccess, tcpingSuccess bool
-    var curlRunDuration, dnsRunDuration, pingRunDuration, tcpingRunDuration time.Duration
+	// Variables to track overall success and duration for each test category
+	var curlSuccess, dnsSuccess, pingSuccess, tcpingSuccess bool
+	var curlRunDuration, dnsRunDuration, pingRunDuration, tcpingRunDuration time.Duration
 	var curlCumulativeDuration, dnsCumulativeDuration, pingCumulativeDuration, tcpingCumulativeDuration time.Duration
 
 	// Create a WaitGroup to wait for all goroutines to finish
@@ -178,22 +232,22 @@ func handleMetricsRequest(w http.ResponseWriter, r *http.Request) {
 
 	wg.Add(4) // One for each test type
 
-    go func() {
-        defer wg.Done()
-        curlSuccess, curlRunDuration, curlCumulativeDuration = runCurlTests(resultChan)
-    }()
-    go func() {
-        defer wg.Done()
-        dnsSuccess, dnsRunDuration, dnsCumulativeDuration = runDnsTests(resultChan)
-    }()
-    go func() {
-        defer wg.Done()
-        pingSuccess, pingRunDuration, pingCumulativeDuration = runPingTests(resultChan)
-    }()
-    go func() {
-        defer wg.Done()
-        tcpingSuccess, tcpingRunDuration, tcpingCumulativeDuration = runTcpingTests(resultChan)
-    }()
+	go func() {
+		defer wg.Done()
+		curlSuccess, curlRunDuration, curlCumulativeDuration = runCurlTests(resultChan)
+	}()
+	go func() {
+		defer wg.Done()
+		dnsSuccess, dnsRunDuration, dnsCumulativeDuration = runDnsTests(resultChan)
+	}()
+	go func() {
+		defer wg.Done()
+		pingSuccess, pingRunDuration, pingCumulativeDuration = runPingTests(resultChan)
+	}()
+	go func() {
+		defer wg.Done()
+		tcpingSuccess, tcpingRunDuration, tcpingCumulativeDuration = runTcpingTests(resultChan)
+	}()
 
 	// Wait for all test types to complete
 	wg.Wait()
@@ -211,9 +265,9 @@ func handleMetricsRequest(w http.ResponseWriter, r *http.Request) {
 		"all_test",
 		true,
 		time.Since(startTimeTotal),
-		(curlCumulativeDuration+
-			dnsCumulativeDuration+
-			pingCumulativeDuration+
+		(curlCumulativeDuration +
+			dnsCumulativeDuration +
+			pingCumulativeDuration +
 			tcpingCumulativeDuration),
 	)
 
@@ -222,7 +276,6 @@ func handleMetricsRequest(w http.ResponseWriter, r *http.Request) {
 		ErrorHandling: promhttp.ContinueOnError,
 	}).ServeHTTP(w, r)
 }
-
 
 func recordTestResult(test string, description string, result bool, runDuration time.Duration, cumulativeDuration time.Duration) {
 	succeeded := 0.00
@@ -234,91 +287,89 @@ func recordTestResult(test string, description string, result bool, runDuration 
 	testCumulativeDurations.WithLabelValues(test, description).Set(cumulativeDuration.Seconds())
 }
 
-
 func runCurlTests(resultChan chan<- testResult) (bool, time.Duration, time.Duration) {
-    var wg sync.WaitGroup
-    startTime := time.Now()
+	var wg sync.WaitGroup
+	startTime := time.Now()
 
-    allSuccess := true
-    var cumulativeDuration time.Duration
-    var mu sync.Mutex // To safely update cumulativeDuration across goroutines
+	allSuccess := true
+	var cumulativeDuration time.Duration
+	var mu sync.Mutex // To safely update cumulativeDuration across goroutines
 
-    for _, curlTest := range config.AppConfig.CurlTests {
-        wg.Add(1)
-        go func(test config.CurlTestConfig) {
-            defer wg.Done()
-            result, err := curl.Test(test)
-            if err != nil {
-                logger.Log.Error("Curl test failed",
-                    zap.String("url", test.URL),
-                    zap.Error(err),
-                )
-                allSuccess = false
-            } else if !result.Completed {
-                allSuccess = false
-            }
+	for _, curlTest := range config.AppConfig.CurlTests {
+		wg.Add(1)
+		go func(test config.CurlTestConfig) {
+			defer wg.Done()
+			result, err := curl.Test(test)
+			if err != nil {
+				logger.Log.Error("Curl test failed",
+					zap.String("url", test.URL),
+					zap.Error(err),
+				)
+				allSuccess = false
+			} else if !result.Completed {
+				allSuccess = false
+			}
 
 			// Record the test result
-            curl.Record(
-                fmt.Sprintf("%s", test.URL),
-                fmt.Sprintf("%s", test.Alias),
-                "GET",
-                result,
-            )
+			curl.Record(
+				fmt.Sprintf("%s", test.URL),
+				fmt.Sprintf("%s", test.Alias),
+				"GET",
+				result,
+			)
 
 			// Safely update the cumulative duration
 			mu.Lock()
 			cumulativeDuration += result.Duration
 			mu.Unlock()
 
-            // Record the result
-            resultChan <- testResult{
-                test:     "curl",
-                target:   fmt.Sprintf("%s", test.URL),
-                alias:    fmt.Sprintf("%s", test.Alias),
-                success:  result.Completed,
-                duration: result.Duration,
-            }
-        }(curlTest)
-    }
+			// Record the result
+			resultChan <- testResult{
+				test:     "curl",
+				target:   fmt.Sprintf("%s", test.URL),
+				alias:    fmt.Sprintf("%s", test.Alias),
+				success:  result.Completed,
+				duration: result.Duration,
+			}
+		}(curlTest)
+	}
 
-    wg.Wait()
-    return allSuccess, time.Since(startTime), cumulativeDuration
+	wg.Wait()
+	return allSuccess, time.Since(startTime), cumulativeDuration
 }
 
-
 func runDnsTests(resultChan chan<- testResult) (bool, time.Duration, time.Duration) {
-    var wg sync.WaitGroup
-    startTime := time.Now()
+	var wg sync.WaitGroup
+	startTime := time.Now()
 
-    allSuccess := true
-    var cumulativeDuration time.Duration
-    var mu sync.Mutex // To safely update cumulativeDuration across goroutines
+	allSuccess := true
+	var cumulativeDuration time.Duration
+	var mu sync.Mutex // To safely update cumulativeDuration across goroutines
 
-    for _, dnsTest := range config.AppConfig.DnsTests {
-        wg.Add(1)
-        go func(test config.DnsTestConfig) {
-            defer wg.Done()
-            result, err := dns.Test(test)
+	for _, dnsTest := range config.AppConfig.DnsTests {
+		wg.Add(1)
+		go func(test config.DnsTestConfig) {
+			defer wg.Done()
+			result, err := dns.Test(test)
 			serverName := ""
 			if dnsTest.Server != "" {
 				serverName = fmt.Sprintf("%s", dnsTest.Server)
 			}
-            if err != nil {
-                logger.Log.Error("DNS test failed",
-                    zap.String("host", test.Host),
-                    zap.Error(err),
-                )
-                allSuccess = false
-            } else if !result.Completed {
-                allSuccess = false
-            }
+			if err != nil {
+				logger.Log.Error("DNS test failed",
+					zap.String("host", test.Host),
+					zap.Error(err),
+				)
+				allSuccess = false
+			} else if !result.Completed {
+				allSuccess = false
+			}
 
 			// Record the test result
-            dns.Record(
-                fmt.Sprintf("%s", test.Host),
-                fmt.Sprintf("%s", test.Alias),
-                serverName,
+			dns.Record(
+				fmt.Sprintf("%s", test.Host),
+				fmt.Sprintf("%s", test.Alias),
+				serverName,
 				result,
 			)
 
@@ -327,49 +378,48 @@ func runDnsTests(resultChan chan<- testResult) (bool, time.Duration, time.Durati
 			cumulativeDuration += result.Duration
 			mu.Unlock()
 
-            // Record the result
-            resultChan <- testResult{
-                test:     "dns",
-                target:   fmt.Sprintf("%s", test.Host),
-                alias:    fmt.Sprintf("%s", test.Alias),
-                success:  result.Completed,
-                duration: result.Duration,
-            }
-        }(dnsTest)
-    }
+			// Record the result
+			resultChan <- testResult{
+				test:     "dns",
+				target:   fmt.Sprintf("%s", test.Host),
+				alias:    fmt.Sprintf("%s", test.Alias),
+				success:  result.Completed,
+				duration: result.Duration,
+			}
+		}(dnsTest)
+	}
 
-    wg.Wait()
-    return allSuccess, time.Since(startTime), cumulativeDuration
+	wg.Wait()
+	return allSuccess, time.Since(startTime), cumulativeDuration
 }
-
 
 func runPingTests(resultChan chan<- testResult) (bool, time.Duration, time.Duration) {
-    var wg sync.WaitGroup
-    startTime := time.Now()
+	var wg sync.WaitGroup
+	startTime := time.Now()
 
-    allSuccess := true
-    var cumulativeDuration time.Duration
-    var mu sync.Mutex // To safely update cumulativeDuration across goroutines
+	allSuccess := true
+	var cumulativeDuration time.Duration
+	var mu sync.Mutex // To safely update cumulativeDuration across goroutines
 
-    for _, pingTest := range config.AppConfig.PingTests {
-        wg.Add(1)
-        go func(test config.PingTestConfig) {
-            defer wg.Done()
-            result, err := ping.Test(test)
-            if err != nil {
-                logger.Log.Error("Ping test failed",
-                    zap.String("host", test.Host),
-                    zap.Error(err),
-                )
-                allSuccess = false
-            } else if !result.Completed {
-                allSuccess = false
-            }
+	for _, pingTest := range config.AppConfig.PingTests {
+		wg.Add(1)
+		go func(test config.PingTestConfig) {
+			defer wg.Done()
+			result, err := ping.Test(test)
+			if err != nil {
+				logger.Log.Error("Ping test failed",
+					zap.String("host", test.Host),
+					zap.Error(err),
+				)
+				allSuccess = false
+			} else if !result.Completed {
+				allSuccess = false
+			}
 
 			// Record the test result
-            ping.Record(
-                fmt.Sprintf("%s", test.Host),
-                fmt.Sprintf("%s", test.Alias),
+			ping.Record(
+				fmt.Sprintf("%s", test.Host),
+				fmt.Sprintf("%s", test.Alias),
 				result,
 			)
 
@@ -378,50 +428,49 @@ func runPingTests(resultChan chan<- testResult) (bool, time.Duration, time.Durat
 			cumulativeDuration += result.Duration
 			mu.Unlock()
 
-            // Record the result
-            resultChan <- testResult{
-                test:     "ping",
-                target:   fmt.Sprintf("%s", test.Host),
-                alias:    fmt.Sprintf("%s", test.Alias),
-                success:  result.Completed,
-                duration: result.Duration,
-            }
-        }(pingTest)
-    }
+			// Record the result
+			resultChan <- testResult{
+				test:     "ping",
+				target:   fmt.Sprintf("%s", test.Host),
+				alias:    fmt.Sprintf("%s", test.Alias),
+				success:  result.Completed,
+				duration: result.Duration,
+			}
+		}(pingTest)
+	}
 
-    wg.Wait()
-    return allSuccess, time.Since(startTime), cumulativeDuration
+	wg.Wait()
+	return allSuccess, time.Since(startTime), cumulativeDuration
 }
 
-
 func runTcpingTests(resultChan chan<- testResult) (bool, time.Duration, time.Duration) {
-    var wg sync.WaitGroup
-    startTime := time.Now()
+	var wg sync.WaitGroup
+	startTime := time.Now()
 
-    allSuccess := true
-    var cumulativeDuration time.Duration
-    var mu sync.Mutex // To safely update cumulativeDuration across goroutines
+	allSuccess := true
+	var cumulativeDuration time.Duration
+	var mu sync.Mutex // To safely update cumulativeDuration across goroutines
 
-    for _, tcpingTest := range config.AppConfig.TcpingTests {
-        wg.Add(1)
-        go func(test config.TcpingTestConfig) {
-            defer wg.Done()
-            result, err := tcping.Test(test)
-            if err != nil {
-                logger.Log.Error("TCPing test failed",
-                    zap.String("host", test.Host),
+	for _, tcpingTest := range config.AppConfig.TcpingTests {
+		wg.Add(1)
+		go func(test config.TcpingTestConfig) {
+			defer wg.Done()
+			result, err := tcping.Test(test)
+			if err != nil {
+				logger.Log.Error("TCPing test failed",
+					zap.String("host", test.Host),
 					zap.String("port", fmt.Sprintf("%d", tcpingTest.Port)),
-                    zap.Error(err),
-                )
-                allSuccess = false
-            } else if !result.Completed {
-                allSuccess = false
-            }
+					zap.Error(err),
+				)
+				allSuccess = false
+			} else if !result.Completed {
+				allSuccess = false
+			}
 
 			// Record the test result
-            tcping.Record(
-                fmt.Sprintf("%s", test.Host),
-                fmt.Sprintf("%s", test.Alias),
+			tcping.Record(
+				fmt.Sprintf("%s", test.Host),
+				fmt.Sprintf("%s", test.Alias),
 				fmt.Sprintf("%d", tcpingTest.Port),
 				result,
 			)
@@ -431,17 +480,17 @@ func runTcpingTests(resultChan chan<- testResult) (bool, time.Duration, time.Dur
 			cumulativeDuration += result.Duration
 			mu.Unlock()
 
-            // Record the result
-            resultChan <- testResult{
-                test:     "tcping",
-                target:   fmt.Sprintf("%s:%d", tcpingTest.Host, tcpingTest.Port),
-                alias:    fmt.Sprintf("%s", test.Alias),
-                success:  result.Completed,
-                duration: result.Duration,
-            }
-        }(tcpingTest)
-    }
+			// Record the result
+			resultChan <- testResult{
+				test:     "tcping",
+				target:   fmt.Sprintf("%s:%d", tcpingTest.Host, tcpingTest.Port),
+				alias:    fmt.Sprintf("%s", test.Alias),
+				success:  result.Completed,
+				duration: result.Duration,
+			}
+		}(tcpingTest)
+	}
 
-    wg.Wait()
-    return allSuccess, time.Since(startTime), cumulativeDuration
+	wg.Wait()
+	return allSuccess, time.Since(startTime), cumulativeDuration
 }
