@@ -6,40 +6,21 @@ web:
   metrics_path: "/metrics"
 
 curl_tests:
-  - url: "http://example.com"
-    timeout: 5s
-  - url: "https://example.com"
-    timeout: 5s
   - url: "https://slashdoom.com"
+    timeout: 5s
+  - url: "http://slashdoom.com"
     timeout: 5s
 
 dns_tests:
-  - host: "example.com"
-    timeout: 5s
-  - host: "example.com"
-    server: "9.9.9.9"
-    timeout: 5s
-  - host: "example.com"
-    server: "8.8.8.8"
-    timeout: 5s
   - host: "slashdoom.com"
     timeout: 5s
 
 ping_tests:
-  - host: "example.com"
-    count: 3
-    timeout: 5s
   - host: "slashdoom.com"
     count: 3
     timeout: 5s
 
 tcping_tests:
-  - host: "example.com"
-    port: 80
-    timeout: 5s
-  - host: "example.com"
-    port: 443
-    timeout: 5s
   - host: "slashdoom.com"
     port: 443
     timeout: 5s
