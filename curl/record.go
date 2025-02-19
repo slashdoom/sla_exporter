@@ -7,36 +7,35 @@ import (
 const prefix string = "sla_curl_"
 
 var (
-	ResultGauge            *prometheus.GaugeVec
-	DurationGauge          *prometheus.GaugeVec
+	ResultGauge   *prometheus.GaugeVec
+	DurationGauge *prometheus.GaugeVec
 
 	dnsDurationGauge       *prometheus.GaugeVec
 	connDurationGauge      *prometheus.GaugeVec
 	tlsDurationGauge       *prometheus.GaugeVec
 	ReqToRespDurationGauge *prometheus.GaugeVec
 
-	statusCodeGauge        *prometheus.GaugeVec
+	statusCodeGauge *prometheus.GaugeVec
 )
-
 
 func init() {
 	l := []string{"target", "alias", "test", "method", "stat"}
 
-	d := prometheus.GaugeOpts{Name: prefix+"result", Help: "Result of test", }
+	d := prometheus.GaugeOpts{Name: prefix + "result", Help: "Result of test"}
 	ResultGauge = prometheus.NewGaugeVec(d, l)
-	d = prometheus.GaugeOpts{Name: prefix+"duration", Help: "Duration of test", }
+	d = prometheus.GaugeOpts{Name: prefix + "duration", Help: "Duration of test"}
 	DurationGauge = prometheus.NewGaugeVec(d, l)
 
-	d = prometheus.GaugeOpts{Name: prefix+"dns_duration", Help: "Duration of DNS lookup", }
+	d = prometheus.GaugeOpts{Name: prefix + "dns_duration", Help: "Duration of DNS lookup"}
 	dnsDurationGauge = prometheus.NewGaugeVec(d, l)
-	d = prometheus.GaugeOpts{Name: prefix+"conn_duration", Help: "Duration of connection dial", }
+	d = prometheus.GaugeOpts{Name: prefix + "conn_duration", Help: "Duration of connection dial"}
 	connDurationGauge = prometheus.NewGaugeVec(d, l)
-	d = prometheus.GaugeOpts{Name: prefix+"tls_duration", Help: "Duration of TLS handshake", }
+	d = prometheus.GaugeOpts{Name: prefix + "tls_duration", Help: "Duration of TLS handshake"}
 	tlsDurationGauge = prometheus.NewGaugeVec(d, l)
-	d = prometheus.GaugeOpts{Name: prefix+"req_to_resp_duration", Help: "Duration from request to response", }
+	d = prometheus.GaugeOpts{Name: prefix + "req_to_resp_duration", Help: "Duration from request to response"}
 	ReqToRespDurationGauge = prometheus.NewGaugeVec(d, l)
 
-	d = prometheus.GaugeOpts{Name: prefix+"status_code", Help: "Status code", }
+	d = prometheus.GaugeOpts{Name: prefix + "status_code", Help: "Status code"}
 	statusCodeGauge = prometheus.NewGaugeVec(d, l)
 }
 
@@ -52,6 +51,18 @@ func Register(registry *prometheus.Registry) {
 	registry.MustRegister(statusCodeGauge)
 }
 
+func Reset() {
+	ResultGauge.Reset()
+	DurationGauge.Reset()
+
+	dnsDurationGauge.Reset()
+	connDurationGauge.Reset()
+	tlsDurationGauge.Reset()
+	ReqToRespDurationGauge.Reset()
+
+	statusCodeGauge.Reset()
+}
+
 func Record(url string, alias string, method string, result CurlResult) {
 	l := prometheus.Labels{"target": url, "alias": alias, "method": method, "test": "curl", "stat": "result"}
 	completed := 0.00
@@ -61,7 +72,7 @@ func Record(url string, alias string, method string, result CurlResult) {
 	ResultGauge.With(l).Set(completed)
 	l = prometheus.Labels{"target": url, "alias": alias, "method": method, "test": "curl", "stat": "duration"}
 	DurationGauge.With(l).Set(result.Duration.Seconds())
-	
+
 	l = prometheus.Labels{"target": url, "alias": alias, "method": method, "test": "curl", "stat": "dns_duration"}
 	dnsDurationGauge.With(l).Set(float64(result.dnsDuration.Seconds()))
 	l = prometheus.Labels{"target": url, "alias": alias, "method": method, "test": "curl", "stat": "conn_duration"}

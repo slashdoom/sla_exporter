@@ -125,6 +125,12 @@ func loadConfig() error {
 		zap.Int("number of TCPing tests", len(config.AppConfig.TcpingTests)),
 	)
 
+	// Reset Prometheus' GaugeVec metrics
+	dns.Reset()
+	curl.Reset()
+	ping.Reset()
+	tcping.Reset()
+
 	return nil
 }
 
@@ -222,6 +228,7 @@ func startServer() {
 
 func handleMetricsRequest(w http.ResponseWriter, r *http.Request) {
 	reg := registry
+
 	startTimeTotal := time.Now()
 
 	// Channels for passing results
