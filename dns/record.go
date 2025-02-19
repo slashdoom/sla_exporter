@@ -11,7 +11,6 @@ var (
 	Duration *prometheus.GaugeVec
 )
 
-
 func init() {
 	l := []string{"target", "alias", "server", "test", "stat"}
 
@@ -21,12 +20,15 @@ func init() {
 	Duration = prometheus.NewGaugeVec(d, l)
 }
 
-
 func Register(registry *prometheus.Registry) {
 	registry.MustRegister(Result)
 	registry.MustRegister(Duration)
 }
 
+func Reset() {
+	Result.Reset()
+	Duration.Reset()
+}
 
 func Record(host string, alias string, server string, result DnsTestResult) {
 	l := prometheus.Labels{"target": host, "alias": alias, "server": server, "test": "dns", "stat": "result"}
