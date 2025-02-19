@@ -109,11 +109,21 @@ func loadConfig() error {
 
 	c, err = MergeConfig(c)
 	if err != nil {
+		logger.Log.Error("config load error",
+			zap.Error(err),
+		)
 		return err
 	}
 
 	config.AppConfig = c
 	logger.Config()
+
+	logger.Log.Info("config load complete",
+		zap.Int("number of Curl tests", len(config.AppConfig.CurlTests)),
+		zap.Int("number of DNS tests", len(config.AppConfig.DnsTests)),
+		zap.Int("number of Ping tests", len(config.AppConfig.PingTests)),
+		zap.Int("number of TCPing tests", len(config.AppConfig.TcpingTests)),
+	)
 
 	return nil
 }
