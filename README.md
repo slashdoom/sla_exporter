@@ -95,7 +95,8 @@ tcping_tests:
 # Third Party Components
 This software uses components of the following projects
 * Prometheus Go client library (https://github.com/prometheus/client_golang)
-* zap Logging library (https://github.com/uber-go/zap)
+* Prometheus Community pro-bing library (https://github.com/prometheus-community/pro-bing)
+* Zap Logging library (https://github.com/uber-go/zap)
 
 # License
 (c) slashdoom (Patrick Ryon), 2024. Licensed under [MIT](LICENSE) license.
