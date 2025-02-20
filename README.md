@@ -2,7 +2,7 @@
 
 Prometheus exporter for SLA-like metrics.  Currently supported are: cURL (http/https), DNS, Ping (ICMP) and TCPing. 
 
-Similar in a lot of way to [Blackbox Exporter](https://github.com/prometheus/blackbox_exporter), and honestly most people will probably be better served by this.  This exporter was desgined to be a bit more basic as it was intended to be run on tele-operated forklifts and the operator stations for them.
+Similar in a lot of ways to [Blackbox Exporter](https://github.com/prometheus/blackbox_exporter), and honestly most people will probably be better served by this.  This exporter was desgined to be a bit more basic as it was intended to be run on tele-operated forklifts and the operator stations for them.
 
 # Flags
 Name     | Description | Default
