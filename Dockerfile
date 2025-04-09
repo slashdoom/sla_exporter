@@ -33,4 +33,4 @@ WORKDIR /go/sla_exporter
 COPY --from=build-env /go/sla_exporter/build/sla_exporter ./
 
 # run binary
-CMD ["./sla_exporter", "--level", "debug"]
+CMD ["./sla_exporter"]
